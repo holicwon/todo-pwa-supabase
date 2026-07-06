@@ -1,5 +1,11 @@
 # 할 일 관리 PWA (Todo Mate 클론)
 
+<p align="center">
+  <img src="docs/screenshot-today.png" width="30%" />
+  <img src="docs/screenshot-calendar.png" width="30%" />
+  <img src="docs/screenshot-stats.png" width="30%" />
+</p>
+
 카테고리·반복·통계 기반 개인 할 일 관리 앱. **서버리스 풀스택** 구조로, 백엔드 코드 없이 Supabase(Postgres) 직결 + PWA로 iOS 홈 화면 설치까지 지원한다.
 
 배포: `https://moonlit-sunshine-d5b8e4.netlify.app`
