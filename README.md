@@ -1,5 +1,10 @@
 # 할 일 관리 PWA (Todo Mate 클론)
 
+[![Live Demo](https://img.shields.io/badge/Live_Demo-Netlify-00C7B7?logo=netlify)](https://moonlit-sunshine-d5b8e4.netlify.app)
+![Supabase](https://img.shields.io/badge/Supabase-PostgreSQL-3ECF8E?logo=supabase)
+![PWA](https://img.shields.io/badge/PWA-iOS_Installable-5A0FC8)
+![License](https://img.shields.io/badge/license-MIT-blue)
+
 <p align="center">
   <img src="docs/screenshot-today.png" width="30%" />
   <img src="docs/screenshot-calendar.png" width="30%" />
