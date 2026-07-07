@@ -208,6 +208,9 @@
 
   <!-- STATS -->
   <div id="paneStats" class="hidden">
+    <button id="exportXlsxBtn" style="width:100%; height:44px; border-radius:12px; background:var(--surface); border:1px solid var(--line); color:var(--text); font-size:14px; font-weight:600; display:flex; align-items:center; justify-content:center; gap:8px; margin-bottom:16px;">
+      ⬇ 엑셀로 내보내기
+    </button>
     <div class="sect">최근 12주 달성률</div>
     <div class="panel">
       <div class="hm" id="heatmap"></div>
@@ -237,6 +240,7 @@
 <div class="toast" id="toast"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script>
 // ================= CONFIG =================
 // ▼▼▼ 여기 2줄을 본인 Supabase 프로젝트 값으로 교체 ▼▼▼
@@ -244,7 +248,15 @@ const SUPABASE_URL = 'https://ozoohqffflizdphbhkdb.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_MuwGpsWzfxRD0ZbxOMTKHw_tfKJyY14';
 // ▲▲▲ (Supabase Dashboard > Project Settings > API) ▲▲▲
 
-const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: true,
+    storageKey: 'todo-auth',
+    storage: window.localStorage
+  }
+});
 
 const CATS=[
   {id:'work',   name:'업무',      color:'#4c8dff'},
@@ -293,7 +305,7 @@ document.getElementById('authBtn').onclick=async()=>{
 };
 document.getElementById('logoutBtn').onclick=async()=>{
   await sb.auth.signOut();
-  try{ Object.keys(localStorage).filter(k=>k.startsWith('sb-')||k.includes('supabase')).forEach(k=>localStorage.removeItem(k)); }catch(e){}
+  try{ Object.keys(localStorage).filter(k=>k.startsWith('sb-')||k.includes('supabase')||k==='todo-auth').forEach(k=>localStorage.removeItem(k)); }catch(e){}
   USER=null; TASKS=[]; RECURS=[]; RECSTATE={};
   showAuth();
 };
@@ -537,6 +549,64 @@ function renderAll(){
 }
 function escapeHtml(s){return s.replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
 
+// ================= EXCEL EXPORT =================
+function exportXlsx(){
+  if(typeof XLSX==='undefined'){ toast('엑셀 모듈 로드 실패'); return; }
+  const wb=XLSX.utils.book_new();
+
+  // 1) 일별 로그 (최근 84일 = 12주)
+  const today=new Date(); today.setHours(0,0,0,0);
+  const start=new Date(today); start.setDate(start.getDate()-today.getDay()-83);
+  const dailyRows=[['날짜','요일','완료','전체','달성률(%)']];
+  for(let d=new Date(start); d<=today; d.setDate(d.getDate()+1)){
+    const s=dayStat(d);
+    if(s.total===0) continue;
+    dailyRows.push([keyOf(d), DOW[d.getDay()], s.done, s.total, Math.round(s.pct*100)]);
+  }
+  const ws1=XLSX.utils.aoa_to_sheet(dailyRows);
+  ws1['!cols']=[{wch:12},{wch:6},{wch:8},{wch:8},{wch:12}];
+  XLSX.utils.book_append_sheet(wb, ws1, '일별 로그');
+
+  // 2) 카테고리별 통계
+  const agg={}; CATS.forEach(c=>agg[c.id]={done:0,total:0});
+  TASKS.forEach(t=>{ if(!agg[t.category])agg[t.category]={done:0,total:0}; agg[t.category].total++; if(t.done)agg[t.category].done++; });
+  Object.values(RECSTATE).forEach(st=>{ if(st.skipped||!st.done) return;
+    const r=RECURS.find(x=>x.id===st.recurring_id); if(!r) return;
+    if(!agg[r.category])agg[r.category]={done:0,total:0}; agg[r.category].done++; agg[r.category].total++; });
+  const catRows=[['카테고리','완료','전체','달성률(%)']];
+  CATS.forEach(c=>{ const a=agg[c.id]; catRows.push([c.name, a.done, a.total, a.total?Math.round(a.done/a.total*100):0]); });
+  const ws2=XLSX.utils.aoa_to_sheet(catRows);
+  ws2['!cols']=[{wch:12},{wch:8},{wch:8},{wch:12}];
+  XLSX.utils.book_append_sheet(wb, ws2, '카테고리별 통계');
+
+  // 3) 반복 항목
+  const recRows=[['할 일','카테고리','반복 주기','시작일','종료일']];
+  RECURS.forEach(r=>{ recRows.push([r.text, catOf(r.category).name, r.rep==='daily'?'매일':'평일', r.start_date, r.end_date||'무기한']); });
+  const ws3=XLSX.utils.aoa_to_sheet(recRows);
+  ws3['!cols']=[{wch:24},{wch:12},{wch:10},{wch:12},{wch:12}];
+  XLSX.utils.book_append_sheet(wb, ws3, '반복 항목');
+
+  // 4) 요약
+  const streak=computeStreak();
+  let td=0,ta=0; CATS.forEach(c=>{td+=agg[c.id].done;ta+=agg[c.id].total;});
+  const sumRows=[
+    ['항목','값'],
+    ['전체 달성률(%)', ta?Math.round(td/ta*100):0],
+    ['완료 총계', td],
+    ['반복 항목 수', RECURS.length],
+    ['현재 연속 달성(일)', streak.cur],
+    ['최고 기록(일)', streak.best],
+    ['내보낸 날짜', keyOf(new Date())],
+  ];
+  const ws4=XLSX.utils.aoa_to_sheet(sumRows);
+  ws4['!cols']=[{wch:20},{wch:14}];
+  XLSX.utils.book_append_sheet(wb, ws4, '요약');
+
+  XLSX.writeFile(wb, `할일통계_${keyOf(new Date())}.xlsx`);
+  toast('엑셀 파일 다운로드됨');
+}
+document.getElementById('exportXlsxBtn').onclick=exportXlsx;
+
 // ================= TABS / NAV =================
 function switchTab(tab){
   activeTab=tab;
@@ -562,12 +632,6 @@ document.querySelectorAll('.repchip').forEach(b=>b.onclick=()=>{
 });
 
 // ================= INIT =================
-// 옛 데모 SW/캐시부터 제거 (인증 로직과 분리, 먼저 실행)
-if('serviceWorker' in navigator){
-  navigator.serviceWorker.getRegistrations().then(rs=>rs.forEach(r=>r.unregister())).catch(()=>{});
-}
-if(window.caches && caches.keys){ caches.keys().then(ks=>ks.forEach(k=>caches.delete(k))).catch(()=>{}); }
-
 (async function(){
   try{
     const {data}=await sb.auth.getSession();
